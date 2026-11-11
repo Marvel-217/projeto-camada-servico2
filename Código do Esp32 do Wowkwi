@@ -1,0 +1,186 @@
+#include <Arduino.h>
+
+// --- MAPEAMENTO DE PINOS NO ESP32 ---
+const int PIN_LED_R       = 25; // Pino Vermelho do LED RGB
+const int PIN_LED_G       = 26; // Pino Verde do LED RGB
+const int PIN_LED_B       = 27; // Pino Azul do LED RGB
+const int PIN_POT         = 34; // Potenciômetro (ADC1)
+const int PIN_LDR         = 35; // Fotorresistor LDR (ADC1)
+const int PIN_TEMP        = 32; // Sensor NTC (ADC1)
+const int PIN_BUZZER      = 33; // Buzzer
+const int PIN_BOTÃO       = 14; // Botão (Interrupção externa)
+
+// Limite de luminosidade do Fotorresistor (0 a 4095)
+const int LIMITE_LDR_ESCURO = 2000;
+
+// --- VARIÁVEIS DE ESTADO E BANDEIRAS ---
+bool ativadoTemperatura = true;
+bool ativadoDetector    = true;
+bool ativadoBuzzer      = true;
+bool ligadoPainel       = true;
+
+volatile bool sistemaAtivoBotao = true; 
+volatile unsigned long ultimoDebounceTempo = 0;
+const unsigned long DEBOUNCE_DELAY = 250; 
+
+unsigned long tempoPiscaRGB = 0;
+bool modoTemporizadoRGB     = false;
+
+// --- INTERRUPÇÃO EXTERNA (ISR) PARA O BOTÃO ---
+void IRAM_ATTR tratarInterrupcaoBotao() {
+  unsigned long tempoAtual = millis();
+  if (tempoAtual - ultimoDebounceTempo > DEBOUNCE_DELAY) {
+    sistemaAtivoBotao = !sistemaAtivoBotao;
+    ultimoDebounceTempo = tempoAtual;
+  }
+}
+
+// --- LEITURA DO NTC NO WOKWI (-24°C a 80°C) ---
+float lerTemperaturaC(int pino) {
+  int leituraADC = analogRead(pino);
+
+  if (leituraADC <= 0) return 80.0;
+  if (leituraADC >= 4095) return -24.0;
+
+  float tensao = leituraADC * (3.3 / 4095.0);
+  float rNTC = 10000.0 * (tensao / (3.3 - tensao));
+
+  float tempK = 1.0 / ( (1.0 / 298.15) + (1.0 / 3950.0) * log(rNTC / 10000.0) );
+  float tempC = tempK - 273.15;
+
+  return constrain(tempC, -24.0, 80.0);
+}
+
+// --- CONFIGURAÇÃO DAS CORES DO LED RGB ---
+void definirCorRGB(int r, int g, int b) {
+  analogWrite(PIN_LED_R, r);
+  analogWrite(PIN_LED_G, g);
+  analogWrite(PIN_LED_B, b);
+}
+
+void definirCorPorEspectro(int valorPot) {
+  if (valorPot < 819) {
+    definirCorRGB(255, 0, 0);       // Vermelho
+  } else if (valorPot < 1638) {
+    definirCorRGB(255, 127, 0);     // Laranja
+  } else if (valorPot < 2457) {
+    definirCorRGB(255, 255, 0);     // Amarelo
+  } else if (valorPot < 3276) {
+    definirCorRGB(255, 255, 255);   // Branco
+  } else if (valorPot < 3685) {
+    definirCorRGB(0, 255, 255);     // Azul Turquesa
+  } else {
+    definirCorRGB(0, 0, 255);       // Azul
+  }
+}
+
+// --- COMANDOS DO PAINEL / MONITOR SERIAL ---
+void processarComando(String cmd) {
+  cmd.trim();
+  if (cmd.equalsIgnoreCase("Ligar")) {
+    ligadoPainel = true;
+  } else if (cmd.equalsIgnoreCase("Desligar")) {
+    ligadoPainel = false;
+  } else if (cmd.equalsIgnoreCase("Vermelho")) {
+    definirCorRGB(255, 0, 0);
+    modoTemporizadoRGB = true;
+    tempoPiscaRGB = millis();
+  } else if (cmd.equalsIgnoreCase("Amarelo")) {
+    definirCorRGB(255, 255, 0);
+    modoTemporizadoRGB = true;
+    tempoPiscaRGB = millis();
+  } else if (cmd.equalsIgnoreCase("Azul")) {
+    definirCorRGB(0, 0, 255);
+    modoTemporizadoRGB = true;
+    tempoPiscaRGB = millis();
+  } else if (cmd.equalsIgnoreCase("Desativar Temperatura")) {
+    ativadoTemperatura = false;
+  } else if (cmd.equalsIgnoreCase("Ativar Temperatura")) {
+    ativadoTemperatura = true;
+  } else if (cmd.equalsIgnoreCase("Desativar Detector")) {
+    ativadoDetector = false;
+  } else if (cmd.equalsIgnoreCase("Ativar Detector")) {
+    ativadoDetector = true;
+  } else if (cmd.equalsIgnoreCase("Desativar Buzzer")) {
+    ativadoBuzzer = false;
+  } else if (cmd.equalsIgnoreCase("Ativar Buzzer")) {
+    ativadoBuzzer = true;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(PIN_LED_R, OUTPUT);
+  pinMode(PIN_LED_G, OUTPUT);
+  pinMode(PIN_LED_B, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  
+  pinMode(PIN_POT, INPUT);
+  pinMode(PIN_LDR, INPUT);
+  pinMode(PIN_TEMP, INPUT);
+
+  pinMode(PIN_BOTÃO, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_BOTÃO), tratarInterrupcaoBotao, FALLING);
+
+  Serial.println("--- Sistema de Lâmpada Inteligente Inicializado ---");
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String comando = Serial.readStringUntil('\n');
+    processarComando(comando);
+  }
+
+  float tempC = lerTemperaturaC(PIN_TEMP);
+  int valorLDR = analogRead(PIN_LDR);
+  int valorPot = analogRead(PIN_POT);
+
+  bool emPerigoTemp = (tempC < 0.0 || tempC > 25.0);
+  bool ambienteEscuro = (valorLDR > LIMITE_LDR_ESCURO);
+
+  static unsigned long ultimoPrint = 0;
+  if (millis() - ultimoPrint > 1000) {
+    ultimoPrint = millis();
+
+    Serial.print("Temperatura: ");
+    if (ativadoTemperatura) {
+      Serial.print(tempC, 1);
+      Serial.print(" °C");
+      if (emPerigoTemp) {
+        Serial.print(" -> Perigo! Desligar!");
+      }
+    } else {
+      Serial.print("[SENSOR DESATIVADO]");
+    }
+    Serial.println();
+
+    bool deveLigarRGB = ligadoPainel && sistemaAtivoBotao && 
+                        (!ativadoTemperatura || !emPerigoTemp) && 
+                        (!ativadoDetector || ambienteEscuro);
+
+    Serial.print("Estado LED RGB: ");
+    Serial.println(deveLigarRGB ? "ON (ligado)" : "OFF (desligado)");
+    Serial.println("------------------------------------------");
+  }
+
+  if (ativadoBuzzer && ativadoTemperatura && emPerigoTemp && sistemaAtivoBotao) {
+    tone(PIN_BUZZER, 1000);
+  } else {
+    noTone(PIN_BUZZER);
+  }
+
+  if (modoTemporizadoRGB) {
+    if (millis() - tempoPiscaRGB > 1000) {
+      modoTemporizadoRGB = false;
+    }
+  } else {
+    if (!sistemaAtivoBotao || !ligadoPainel || (ativadoTemperatura && emPerigoTemp) || (ativadoDetector && !ambienteEscuro)) {
+      definirCorRGB(0, 0, 0);
+    } else {
+      definirCorPorEspectro(valorPot);
+    }
+  }
+
+  delay(50);
+}
