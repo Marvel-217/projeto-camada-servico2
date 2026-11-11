@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "author": "MIA FERNANDA SHANNEL CIEZA TAFUR",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": -139.16, "attrs": {} },
+    {
+      "type": "wokwi-led-matrix",
+      "id": "matrix1",
+      "top": -63.6,
+      "left": 15,
+      "attrs": { "rows": "8", "cols": "8" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -32.4,
+      "left": -207,
+      "attrs": { "color": "red", "flip": "1" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 70.6,
+      "left": -221.65,
+      "rotate": 270,
+      "attrs": { "value": "150" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -32.4,
+      "left": -178.2,
+      "attrs": { "color": "limegreen", "flip": "1" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 61,
+      "left": -192.85,
+      "rotate": 270,
+      "attrs": { "value": "150" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "matrix1:DIN", "esp:23", "green", [ "v9.6", "h-86.4", "v-105.6" ] ],
+    [ "matrix1:VDD", "esp:3V3", "yellow", [ "v86.4", "h-250", "v-192" ] ],
+    [ "matrix1:VSS", "esp:GND.2", "black", [ "v19.2", "h-116", "v-124.8" ] ],
+    [ "led1:A", "r1:2", "red", [ "v0" ] ],
+    [ "r1:1", "esp:26", "red", [ "h0", "v9.6" ] ],
+    [ "led1:C", "esp:GND.1", "red", [ "v0" ] ],
+    [ "led2:A", "r2:2", "limegreen", [ "v0" ] ],
+    [ "r2:1", "esp:25", "limegreen", [ "h0", "v9.6" ] ],
+    [ "led2:C", "esp:GND.1", "limegreen", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
